@@ -1,24 +1,96 @@
+/**
+ * GGIF Module - Advanced GIF Creation and Manipulation
+ *
+ * This module creates enhanced GIF files (GGIFs) that extend the standard GIF format with custom
+ * functionality. GGIFs can contain synchronized audio, timed text overlays, and metadata embedded
+ * directly in the file using GIF89a extension blocks.
+ *
+ * WHAT THIS MODULE DOES:
+ * ----------------------
+ * 1. Creates animated GIFs from YouTube videos with synchronized audio
+ * 2. Embeds audio data directly after the GIF trailer (appended to file)
+ * 3. Adds karaoke-style text overlays that highlight words in sync with audio
+ * 4. Stores metadata like text segments, timing data, and source video IDs
+ * 5. Processes existing GIFs to add text overlays and audio tracks
+ * 6. Supports distributed storage via IPFS/DAT protocols
+ *
+ * CUSTOM EXTENSION TYPES:
+ * -----------------------
+ * This module uses GIF89a Application Extension blocks with custom identifiers:
+ *
+ * - Type 240 (0xF0): Text Segments
+ *   Stores the complete text/lyrics to be displayed on the GIF
+ *   Format: Plain text string of all words/segments
+ *
+ * - Type 241 (0xF1): Timing Data
+ *   Stores timing information for when each text segment appears
+ *   Format: Comma-separated list of timestamps in seconds
+ *
+ * - Type 242 (0xF2): YouTube Video ID
+ *   Stores the source YouTube video ID for reference
+ *   Format: YouTube video ID string (e.g., "dQw4w9WgXcQ")
+ *
+ * - Type 243 (0xF3): Audio Format
+ *   Specifies the format of the embedded audio
+ *   Format: Audio codec name (e.g., "ogg", "opus", "mp3")
+ *
+ * - Type 254 (0xFE): Standard Comment
+ *   Standard GIF comment extension for general metadata
+ *
+ * FILE STRUCTURE:
+ * ---------------
+ * [GIF Header]
+ * [GIF Frames]
+ * [Custom Extensions (240-243)]
+ * [GIF Trailer (0x3B)]
+ * [Audio Data (appended after trailer)]
+ *
+ * The audio is appended after the GIF trailer, making the file still valid as a GIF
+ * but containing extra data that this module can extract and play synchronously.
+ *
+ * WORKFLOW:
+ * ---------
+ * 1. Load YouTube video → Extract frames → Create base GIF
+ * 2. Extract audio from video → Convert to OGG/Opus format
+ * 3. Parse subtitles/lyrics → Generate timing data
+ * 4. Add text overlays to frames with karaoke highlighting
+ * 5. Embed metadata as GIF extensions
+ * 6. Append audio data after GIF trailer
+ * 7. Save complete GGIF file
+ *
+ * @module glueGif
+ */
 var glueGif = {
 
-	// from array buffer create objectURL to represent in img=src
+	/**
+	 * Creates an object URL from an array buffer for displaying in img src
+	 * @param {ArrayBuffer} arrayBufferView - The array buffer containing image data
+	 * @returns {string} Object URL that can be used as image source
+	 */
 	objectURL: function(arrayBufferView){
 	    var blob = new Blob([arrayBufferView], {type: "image/gif"});
 	    return URL.createObjectURL(blob);
 	},
 
-	// play audio from given buffer
+	/**
+	 * Plays audio that was embedded at the end of a GIF file
+	 * @param {Uint8Array} buf - Buffer containing GIF data with appended audio
+	 */
 	playBuf: function(buf){
 		var ggif = new GifReader(buf);
-		var sound = buf.slice(ggif.p)
+		var sound = buf.slice(ggif.p) // Extract audio data after GIF content
 		if(sound.length){
 			var blob = new Blob([sound], {type: "audio/ogg;base64"});
 			audio.src = URL.createObjectURL(blob);
 			audio.play();
-			//Ggif.audio.src = 'data:audio/ogg;base64,'+Ggif.Uint8ToBase64(sound);
 		}
 	},
 
-	// from array buffer create objectURL to represent in img=src
+	/**
+	 * Encodes an array buffer to base64 string
+	 * @param {ArrayBuffer} buffer - Buffer to encode
+	 * @returns {string} Base64 encoded string
+	 */
 	encode64: function(buffer) {
 		var binary = '',
 			len = buffer.byteLength;
@@ -30,8 +102,13 @@ var glueGif = {
 		return window.btoa( binary );
 	},
 
+	/**
+	 * Converts Uint8Array to base64 string in chunks to avoid stack overflow
+	 * @param {Uint8Array} u8Arr - Array to convert
+	 * @returns {string} Base64 encoded string
+	 */
 	Uint8ToBase64: function(u8Arr){
-		var CHUNK_SIZE = 0x8000; //arbitrary number
+		var CHUNK_SIZE = 0x8000; // Process in 32KB chunks
 		var index = 0;
 		var length = u8Arr.length;
 		var result = '';
@@ -45,6 +122,11 @@ var glueGif = {
 	},
 
 
+	/**
+	 * Handles file upload for images and audio files
+	 * @param {Event} evt - Upload event from file input or drag-drop
+	 * @returns {boolean} False to prevent default behavior
+	 */
 	upload: function(evt){
 		evt.preventDefault();
 
@@ -54,6 +136,7 @@ var glueGif = {
 		for (var i = 0, f; f = files[i]; i++){
 			console.log(f.type);
 			if(f.type.match('image.*')){
+				// Process image files
 				Ggif.read2arr(f, function(r){
 					Ggif.read(r);
 				});
@@ -64,6 +147,7 @@ var glueGif = {
 			}
 			else
 			if(f.type.match('audio.*')){
+				// Process audio files for embedding
 				Ggif.read2arr(f, function(r){
 					Ggif.sound = r;
 				});
@@ -77,7 +161,11 @@ var glueGif = {
 		return false;
 	},
 
-	// read uploadable file object into buffer
+	/**
+	 * Reads file as array buffer for binary processing
+	 * @param {File} f - File object to read
+	 * @param {Function} cb - Callback with Uint8Array result
+	 */
 	read2arr: function(f, cb){
 		var reader = new FileReader();
 		reader.onload = function(){
@@ -86,6 +174,11 @@ var glueGif = {
 		reader.readAsArrayBuffer(f)
 	},
 
+	/**
+	 * Reads file as data URL for direct display in img/audio elements
+	 * @param {File} f - File object to read
+	 * @param {Function} cb - Callback with data URL string
+	 */
 	read2url: function(f, cb){
 		var reader = new FileReader();
 		reader.onload = function(){
@@ -101,28 +194,31 @@ var glueGif = {
 
 	audioFormat: Cfg.ggif.audioFormat || 'ogg',
 
-	// make ggif with all the stuff inside it: gif, audio, segments, timings, comment
+	/**
+	 * Creates a complete GGIF with embedded metadata and optional audio
+	 * Embeds: comments, text segments, timings, YouTube ID, and audio
+	 * @returns {Uint8Array} Complete GIF buffer with all embedded data
+	 */
 	make: function(){
 		var add = [];
 
+		// Add comment if provided
 		var comment = $('#gif-comment').val();
 		if(comment)
 			add.push(Ggif.bufComment(comment));
 
-		/*
-		if(Ggif.sound)
-			add.push(Ggif.bufMake(Ggif.sound));
-		*/
-
+		// Add text segments and timings (extension types 240, 241)
 		if($('#gif-includeTwext').hasClass('v')){
-			if(Ggif.seg) add.push(Ggif.bufString(Ggif.seg, 240));
-			if(Ggif.tim) add.push(Ggif.bufString(Ggif.tim, 241));
+			if(Ggif.seg) add.push(Ggif.bufString(Ggif.seg, 240)); // Text segments
+			if(Ggif.tim) add.push(Ggif.bufString(Ggif.tim, 241)); // Timing data
 		}
 
+		// Add YouTube video reference (extension type 242)
 		var youtube = $('#gif-youtube').val();
 		if(youtube.length)
 			add.push(Ggif.bufString(youtube, 242));
 
+		// Optionally append audio to end of GIF
 		var incSound = $('#gif-includeSound').hasClass('v');
 		var buf = Ggif.recompile(add, incSound?Ggif.sound:false);
 
@@ -194,10 +290,16 @@ var glueGif = {
 
 	},
 
-	// compile it but also add some items inside it and append audio to the end
+	/**
+	 * Recompiles a GIF with additional extensions and optional audio appendix
+	 * @param {Array} add - Array of extension buffers to insert
+	 * @param {Uint8Array} appendix - Optional audio data to append after GIF
+	 * @returns {Uint8Array} Recompiled GIF buffer
+	 */
 	recompile: function(add, appendix){
 		var parts = [];
 
+		// Split GIF at extension points to preserve structure
 		var nextCut = 0;
 		Ggif.g.exts.forEach(function(ext){
 			var part = Ggif.buf.slice(nextCut, ext.index);
@@ -205,26 +307,33 @@ var glueGif = {
 			nextCut = ext.index + 2 + ext.size;
 		});
 
+		// Add remaining GIF data (minus trailer)
 		parts.push(Ggif.buf.slice(nextCut, Ggif.g.p-1));
 
+		// Insert new extensions
 		if(typeof add == 'object' && add.length)
 			parts.push.apply(parts, add);
 
+		// Calculate total size
 		var size = 0;
 		parts.forEach(function(part){
 			size += part.length;
 		});
 
-		size++; // for trailer 0x3b
+		size++; // for GIF trailer (0x3B)
 		if(appendix) size += appendix.length;
+
+		// Combine all parts
 		var buf = new Uint8Array(size), p = 0;
 		parts.forEach(function(part){
 			buf.set(part, p);
 			p += part.length;
 		});
 
-		buf[buf.length-1-(appendix?appendix.length:0)] = 59;
+		// Add GIF trailer before audio
+		buf[buf.length-1-(appendix?appendix.length:0)] = 59; // 0x3B
 
+		// Append audio after GIF data
 		if(appendix && appendix.length)
 			buf.set(appendix, buf.length-appendix.length);
 
@@ -235,35 +344,55 @@ var glueGif = {
 		//if()
 	},
 
-	// get what was inserted to the end of the gif, usually audio
+	/**
+	 * Extracts data appended after GIF trailer (usually audio)
+	 * @returns {Uint8Array} Appended data buffer
+	 */
 	getAppendix: function(){
-		return Ggif.buf.slice(Ggif.g.p);
+		return Ggif.buf.slice(Ggif.g.p); // Data after GIF end position
 	},
 
+	/**
+	 * Creates a GIF comment extension block
+	 * @param {string} str - Comment text to embed
+	 * @returns {Uint8Array} Comment extension block
+	 */
 	bufComment: function(str){
-		// 0x21: Extension Block + 0xfe: Comment Extension + length byte & string && 0x00: end
+		// Format: 0x21 (Extension) + 0xFE (Comment) + length + data + 0x00 (terminator)
 		var buf = new Uint8Array(3+str.length+1);
-		buf[0] = 33;
-		buf[1] = 254;
+		buf[0] = 33;  // 0x21: Extension introducer
+		buf[1] = 254; // 0xFE: Comment extension
 		buf[2] = str.length;
 		for (var i=0; i<str.length; i++){
 			buf[3+i] = str.charCodeAt(i);
 		}
-
+		// buf[3+str.length] = 0 (already initialized)
 		return buf;
 	},
 
-	// convert string into buffer and prepare it to be inserted into gif with selected type int
+	/**
+	 * Converts string to GIF extension block format
+	 * @param {string} str - String to embed
+	 * @param {number} type - Extension type (240-243 for custom, 254 for comment)
+	 * @returns {Uint8Array} Extension block buffer
+	 *
+	 * Extension types used:
+	 * - 240: Text segments
+	 * - 241: Timing data
+	 * - 242: YouTube ID
+	 * - 243: Audio format
+	 * - 254: Standard comment
+	 */
 	bufString: function(str, type){
-		// 0x21: Extension Block + 0xfe: Comment Extension + length byte & string && 0x00: end
+		// Extension format: 0x21 (Extension) + type + length + data + 0x00 (terminator)
 		var buf = new Uint8Array(3+str.length+1);
-		buf[0] = 33;
-		buf[1] = type || 254;
-		buf[2] = str.length;
+		buf[0] = 33;  // 0x21: Extension introducer
+		buf[1] = type || 254; // Extension type
+		buf[2] = str.length; // Data length
 		for (var i=0; i<str.length; i++){
 			buf[3+i] = str.charCodeAt(i);
 		}
-
+		// buf[3+str.length] = 0 (already initialized)
 		return buf;
 	},
 
@@ -280,7 +409,11 @@ var glueGif = {
 		return buf;
 	},
 
-	// load Uint8Array from given address
+	/**
+	 * Loads binary data from URL as Uint8Array
+	 * @param {string} url - URL to load from
+	 * @param {Function} cb - Callback with Uint8Array result
+	 */
 	loadBuf: function(url, cb){
 		var xhr = new XMLHttpRequest();
 		xhr.open("GET", url, true);
@@ -521,7 +654,11 @@ var glueGif = {
 		ctx.fillText(text, canvas.width/2, canvas.height - size - 8);
 	},
 
-	// slit gif into canvas frames and lay them down
+	/**
+	 * Splits GIF into individual canvas frames for editing
+	 * Each frame is rendered to a separate canvas element
+	 * Maintains frame timing and disposal information
+	 */
 	loadFrames: function(){
 		var $frames = $('#frames').empty(),
 			height = $frames.height(),
@@ -534,25 +671,23 @@ var glueGif = {
 
     		var frame = Ggif.g.frameInfo(i);
 
-			$canvas.data(frame);
+			$canvas.data(frame); // Store frame metadata
 			$canvas.attr({width: Ggif.g.width, height: Ggif.g.height});
 
     		$frames.append($canvas);
 
+			// Use previous frame as base for disposal method
 			var pixels = ($canvas.prev().length)?
 				$canvas.prev()[0].getContext("2d").getImageData(0,0, Ggif.g.width, Ggif.g.height):
 				ctx.createImageData(Ggif.g.width, Ggif.g.height);
 
 			Ggif.g.decodeAndBlitFrameBGRA(i, pixels.data);
     		ctx.putImageData(pixels, 0, 0);
-
-			//$canvas.css({width: width, height: height});
 		}
 
 		console.info('loadFrames');
-		this.glueUpText(Cfg.ggif.color);
-		//return;
-		this.collect();
+		this.glueUpText(Cfg.ggif.color); // Add text overlays
+		this.collect(); // Process frames
 	},
 
 	// on those frames put some text into one line
@@ -581,7 +716,11 @@ var glueGif = {
 		});
 	},
 
-	// on those frames put some text into many lines
+	/**
+	 * Adds multi-line text overlays to frames with styling
+	 * Text changes based on timing, with current word highlighted in uppercase
+	 * @param {string|number} color - Text color (hex string or RGB number)
+	 */
 	glueUpText: function(color){
 		var time = 0;
 
@@ -594,25 +733,29 @@ var glueGif = {
 				ctx = canvas.getContext("2d"),
 				frame = $canvas.data();
 
-
+			// Get text for current time position
 			var font = Cfg.ggif.font,
 				size = Cfg.ggif.size,
 				text = Ggif.getUpText(time);
 
+			// Measure text height
 			ctx.textBaseline = "top";
 			ctx.fillStyle = color;
 			ctx.font = size+"px "+font;
 			var height = ctx.wrapText(text, 0, 0, canvas.width, size, true) - 1;
 
+			// Copy current canvas to memory
 			var inMem = document.createElement('canvas');
 			inMem.width = canvas.width;
 			inMem.height = canvas.height;
 			var inMemCtx = inMem.getContext('2d');
 			inMemCtx.drawImage(canvas, 0, 0);
 
+			// Resize canvas and shift image down
 			canvas.height = canvas.height + height;
 			ctx.drawImage(inMem, 0, height);
 
+			// Add gradient background for text
 			ctx.shadowColor = Cfg.ggif.shadowColor;
 			ctx.shadowOffsetX = Cfg.ggif.shadowOffsetX;
 			ctx.shadowOffsetY = Cfg.ggif.shadowOffsetX;
@@ -624,17 +767,21 @@ var glueGif = {
 		  ctx.fillStyle = grV;
 			ctx.fillRect(0,0, canvas.width, height + 2);
 
+			// Draw text on top
 			ctx.textBaseline = "top";
 			ctx.fillStyle = color;
 			ctx.font = size+"px "+font;
 			ctx.textAlign = "center";
 			ctx.wrapText(text, parseInt(canvas.width / 2), 2, canvas.width, size);
 
-			time += frame.delay/100;
+			time += frame.delay/100; // Advance time for next frame
 		});
 	},
 
-	// collect canvas frames and send their data to server
+	/**
+	 * Collects all canvas frames and uploads them as JPEG images
+	 * Once all frames are uploaded, triggers GIF compilation on server
+	 */
 	collect: function(){
 		var ids = [];
 		var numFrames = $('#frames > canvas').each(function(index){
@@ -644,11 +791,12 @@ var glueGif = {
 				frame = $canvas.data();
 
 			var mime = "image/jpeg";
+			// Convert canvas to JPEG blob and upload
 			canvas.toBlob(function(blob){
 				(Sockets.local || Sockets.main).upload(blob, function(file){
 					if(file){
 						ids.push(file.id);
-
+						// When all frames uploaded, create GIF
 						if(ids.length == numFrames) Ggif.printGif();
 					}
 				}, {
@@ -656,7 +804,7 @@ var glueGif = {
 					location: 'gif',
 					name: Ggif.getName() + '_' + index + '.jpg'
 				});
-			}, mime, 0.95);
+			}, mime, 0.95); // 95% JPEG quality
 		}).length;
 		console.info('collect');
 	},
@@ -666,15 +814,19 @@ var glueGif = {
 		return Tx.yid() + '-' + Tx.timeStart() + '-' + Tx.duration();
 	},
 
-	// ask server to glue those jpeg files into gif // uses ffmpeg
+	/**
+	 * Requests server to compile uploaded JPEG frames into a GIF using FFmpeg
+	 * Server combines frames based on the naming pattern
+	 */
 	printGif: function(){
 		console.info('printGif');
 		(Sockets.local || Sockets.main).send({
 			cmd: 'makeGif',
-			name: Ggif.getName()
+			name: Ggif.getName() // Uses YouTube ID + timing as filename
 		}, function(r){
 			if(!r.file) return;
 
+			// Load the created GIF and add metadata
 			Ggif.prepare(r.file.id, function(){
 				Ggif.compile();
 			});
@@ -720,13 +872,18 @@ var glueGif = {
 		});
 	},
 
-	// compule prepared Ggif.
+	/**
+	 * Compiles the final GGIF with all metadata and audio
+	 * Embeds text, timings, YouTube ID, and synchronized audio
+	 * Uploads to server or IPFS for storage
+	 */
 	compile: function(){
 		var buf = Ggif.buf;
 		if(!buf) return;
 
 		$('#resize').addClass('loading-ggif');
 
+		// Extract timings from game elements
 		var timings = [];
 		$('#game > i:not(.skip)').each(function(){
 			var s = parseFloat($(this).data('time'));
@@ -735,46 +892,47 @@ var glueGif = {
 
 		Ggif.timings = timings;
 
+		// Prepare metadata extensions
 		var add = [];
-		add.push(Ggif.bufString(Tx.getText(), 240));
-		add.push(Ggif.bufString(timings.join(','), 241));
+		add.push(Ggif.bufString(Tx.getText(), 240));        // Text segments
+		add.push(Ggif.bufString(timings.join(','), 241));   // Timing data
+		add.push(Ggif.bufString(Tx.yid(), 242));           // YouTube video ID
+		add.push(Ggif.bufString(Ggif.audioFormat, 243));   // Audio format (ogg/opus)
 
-		add.push(Ggif.bufString(Tx.yid(), 242));
-		add.push(Ggif.bufString(Ggif.audioFormat, 243));
-
+		// Fetch and embed audio
 		Ggif.fetchAudio(function(res){
 			var audio = new Uint8Array(res);
 
+			// Recompile GIF with metadata and audio
 			var buf = Ggif.recompile(add, audio);
 
 			$('#resize').removeClass('loading-ggif');
 
+			// Upload completed GGIF
 			ws.upload(buf, function(file){
 				if(!file) return;
-
 				Ggif.saveCompiled(file.id);
 			});
 
-			return;
-			ipfs.add(Buffer.from(buf)).then(function(r){
-				if(!r || !r.length) return;
-				var id = r[0].path;
-				Ggif.saveCompiled(id);
-				Ggif.image.src = ipfs.url(id);
-				Ggif.fromIpfs(id);
-			});
+			// Alternative: IPFS storage (commented out)
+			// ipfs.add(Buffer.from(buf)).then(function(r){...});
 		});
 	},
 
 
-	// fetch audio from youtube video using server's help
+	/**
+	 * Fetches audio segment from YouTube video via server API
+	 * Server extracts and converts audio to specified format
+	 * @param {Function} cb - Callback with audio ArrayBuffer
+	 */
 	fetchAudio: function(cb){
 		var startTime = Tx.timeStart(),
 			lengthTime = parseFloat(document.getElementById('gif-youtube_length').value);
 
 		var audioFormat = Ggif.audioFormat;
-		if(audioFormat == 'ogg') audioFormat = 'opus';
+		if(audioFormat == 'ogg') audioFormat = 'opus'; // Use opus codec for ogg
 
+		// Build API URL: /youtube/{video_id}/{format}/{start}/{length}
 		var srcAudio = 'http://'+Cfg.server+'/youtube/'+Tx.yid()+'/'+audioFormat;
 		if(startTime) srcAudio += '/'+(startTime);
 		if(lengthTime) srcAudio += '/'+lengthTime;

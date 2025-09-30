@@ -1,34 +1,45 @@
+/**
+ * Carousel - Horizontal scrolling image carousel with drag-drop, upload, and view management
+ * @constructor
+ * @param {Object} opt - Configuration options to extend defaults
+ */
 var Carousel = function(opt){
+	// Merge default configuration with provided options
 	this.cfg = $.extend(this.cfg, {
-		allowPatterns: false,
-		down2remove: 0.5,
-		takeOffLimit: 5,
-		slideLimit: 10,
-		infinite: true,
-		preloadLocal: true,
-		preloadGoogle: true,
-		fetchLimit: 8,
+		allowPatterns: false,     // Enable infinite pattern scrolling
+		down2remove: 0.5,          // Drag down threshold (0.5 = 50% of height)
+		takeOffLimit: 5,           // Pixel threshold to start drag
+		slideLimit: 10,            // Pixel threshold to register as slide
+		infinite: true,            // Enable infinite scrolling
+		preloadLocal: true,        // Auto-collect images from current page
+		preloadGoogle: true,       // Use Google Image Search for filling
+		fetchLimit: 8,             // Max items to fetch when prepending views
 	}, opt);
 
 	var name = this.cfg.name;
+	// Create main carousel container element
 	var $carousel = this.$t = $("<div>", {class: 'carousel bar'});
 	this.$t.attr('name', name);
 	this.name = name;
 
 	var carousel = this;
 
+	// Create tag/path input field
 	this.$tag = $('<input>', {class: 'carousel-tag'}).appendTo($carousel);
 	this.$tag.bindEnter(function(ev){
 		carousel.onTag(this.value);
 	});
 
+	// Focus management: clicking carousel gives it focus
 	$carousel.click(ev => {
 		$carousel.addClass('focus').siblings().removeClass('focus');
 	});
 
+	// Store DOM element and bidirectional reference
 	this.t = this.$t[0];
 	this.t.carousel = this;
 
+	// Initialize drag-drop and scroll handlers
 	this.allowUpload();
 	this.supportOnEmpty();
 
@@ -37,7 +48,11 @@ var Carousel = function(opt){
 };
 
 Carousel.prototype = {
-	// do something with tag string.
+	/**
+	 * Handle tag input - loads view based on tag/path and optional owner
+	 * Tag format: "path@owner" where owner is optional
+	 * @param {string} tag - Tag or path to load
+	 */
 	onTag: function(tag){
 		/*
 		if(filter.path.indexOf(':/')+1){
@@ -50,12 +65,14 @@ Carousel.prototype = {
 		}
 		*/
 
+		// Get tag from previous carousel if exists
 		var $up = this.$t.prevAll('.carousel');
 		if($up.length){
 			var upCarousel = $up[0].carousel,
 					upTag = upCarousel.getPath();
 		}
 
+		// Use current location if no tag provided
 		if(!tag){
 			tag = this.getPath(document.location.href);
 			console.log(tag);
@@ -64,21 +81,24 @@ Carousel.prototype = {
 
 		var tg = tag.split('@');
 
+		// Prepend parent tag if current tag starts with @
 		this.$tag.val(!tg[0]?(upTag+tag):tag);
 		tg = tag.split('@');
 
+		// Extract owner from URL if present
 		var u = document.location.href.split('@')[1];
 
 		console.log('U: ', u);
 
+		// Route to appropriate load method based on owner
 		if(typeof u == 'string'){
 			var tgName = tg[0];
 
 			this.owner = u;
 			if(!u.length)
-				this.loadPublic(tgName);
+				this.loadPublic(tgName);  // No owner = public view
 			else
-				this.loadView(tgName);
+				this.loadView(tgName);     // Has owner = private view
 		}
 		else{
 			this.owner = null;
@@ -86,11 +106,19 @@ Carousel.prototype = {
 		}
 	},
 
-	//will create an element with all events and puts it into its place
+	/**
+	 * Create a thumbnail element and add to carousel
+	 * Legacy method - creates simple image thumbnail
+	 * @param {string} url - Image URL
+	 * @param {jQuery} $before - Element to insert before (optional)
+	 * @returns {jQuery} Created thumbnail element
+	 */
 	add: function(url, $before){
 		if(!url) return;
+		// Remove any clone elements from drag operations
 		$(this.$t).children('.clone').remove();
 
+		// Extract actual image URL from query string if needed
 		var qs = parseQS(decodeURIComponent(url));
 
 		if(qs && qs.imgurl)
@@ -103,18 +131,26 @@ Carousel.prototype = {
 		return $thumb;
 	},
 
-	//take url and iserts new item into DB
+	/**
+	 * Include URL in carousel - validates, saves to database, and creates thumbnail
+	 * Handles image loading, dimension detection, and fallback to website scraping
+	 * @param {string} url - URL to include (auto-prepends http:// if missing)
+	 * @param {jQuery} $thumbOn - Element to insert before (optional)
+	 */
 	include: function(url, $thumbOn){
 		if(!url) return;
 
 		var carousel = this;
 
+		// Ensure URL has protocol
 		if(url.indexOf('http://')<0 && url.indexOf('https://')<0 && url.indexOf('ipfs://')<0)
 			url = 'http://'+url;
 
+		// Remove duplicate if already exists
 		var $dub = this.find(url);
 		if($dub) $dub.remove();
 
+		// Create item object for database
 		var item = {
 			src: url,
 			path: carousel.getPath(),
@@ -125,6 +161,7 @@ Carousel.prototype = {
 		};
 		add = true;
 
+		// Save item to database and build thumbnail
 		var save = function(){
 			Pix.send({
 				cmd: 'save',
@@ -150,18 +187,21 @@ Carousel.prototype = {
 			});
 		};
 
+		// Services that don't need dimension validation
 		var skipCheck = [
-			'ggif.co',
-			'th.ai',
-			'youtu.be',
-			'youtube.com'
+			'ggif.co',      // GIF creation service
+			'th.ai',        // AI service
+			'youtu.be',     // YouTube short URL
+			'youtube.com'   // YouTube
 		];
 
+		// Skip dimension check for known services
 		if(skipCheck.some(function(service){
 			return url.indexOf(service)+1;
 		}))
 			save()
 		else{
+			// Validate image by loading and checking dimensions
 			/*
 			var $preloader = carousel.preloader();
 			if($thumbOn && $thumbOn.length)
@@ -170,6 +210,7 @@ Carousel.prototype = {
 				carousel.$t.append($preloader);
 			*/
 
+			// Preload image to get dimensions
 			var img = new Image();
 			var intr = setInterval(function(){
 				console.log(img.width+'x'+img.height);
@@ -184,6 +225,7 @@ Carousel.prototype = {
 				save();
 			}, 500);
 
+			// Fallback: if image fails, try scraping website
 			img.onerror = function(){
 				if(item.type == 'link'){
 					clearInterval(intr);
@@ -225,6 +267,11 @@ Carousel.prototype = {
 			//db.post(item);
 	},
 
+	/**
+	 * Format URL for display - converts IPFS URLs to gateway format
+	 * @param {string} url - URL to format
+	 * @returns {string} Formatted URL
+	 */
 	formatUrl: function(url){
 		if(url.indexOf('ipfs://') === 0){
 			var hash = url.replace('ipfs://', '');
@@ -235,12 +282,21 @@ Carousel.prototype = {
 		return url;
 	},
 
-	// will find all elemnts with given url with dublicates included also.
+	/**
+	 * Find thumbnails with given URL (including duplicates)
+	 * @param {string} url - URL to search for
+	 * @returns {jQuery|false} Found thumbnail parent or false
+	 */
 	find: function(url){
 		var $found = this.$t.find('img[src="'+url+'"]');
 		return ($found.length)?$found.parent():false;
 	},
 
+	/**
+	 * Remove thumbnails with given URL from carousel
+	 * @param {string} url - URL to remove
+	 * @returns {jQuery} Removed elements
+	 */
 	remove: function(url){
 		var t = this,
 			$els = this.$t.children('.thumb[src="'+url+'"]'),
@@ -261,6 +317,10 @@ Carousel.prototype = {
 		return $els;
 	},
 
+	/**
+	 * Load items into carousel
+	 * @param {Array} items - Array of item URLs
+	 */
 	load: function(items){
 		var t = this;
 		if(items) items.forEach(function(item){
@@ -306,7 +366,15 @@ Carousel.prototype = {
 		return $thumb;
 	},
 
-	// makes it possible to drag and drop on selected item
+	/**
+	 * Add drag-drop, click, and interaction events to a thumbnail
+	 * Handles complex drag behavior including:
+	 * - Horizontal scrolling
+	 * - Vertical drag to reorder (up/down)
+	 * - Drag between carousels
+	 * - Momentum scrolling
+	 * @param {jQuery} $thumb - Thumbnail element to enhance
+	 */
 	supportEvents: function($thumb){
 		if(!$thumb || !$thumb.length) return;
 
@@ -587,7 +655,10 @@ Carousel.prototype = {
 		});
 	},
 
-	// makes it possible to drop elements on empty tier
+	/**
+	 * Enable drag-drop functionality on empty carousels
+	 * Allows dropping items into carousels with no content
+	 */
 	supportOnEmpty: function(){
 		var carousel = this;
 		var childs;
@@ -617,10 +688,11 @@ Carousel.prototype = {
 		});
 	},
 
-	/*
-		will resize the thumbnail to fit into carousel's height
-		if no $thumb given, then it will check them all.
-	*/
+	/**
+	 * Resize thumbnail(s) to fit carousel height
+	 * Maintains aspect ratio and handles images, iframes, and canvases
+	 * @param {jQuery} $thumb - Specific thumbnail to resize, or resizes all if omitted
+	 */
 	resize: function($thumb){
 		var carousel = this;
 		if(!$thumb)
@@ -727,7 +799,10 @@ Carousel.prototype = {
 		}
 	},
 
-	// return all unique image locations
+	/**
+	 * Get array of all unique image URLs in carousel
+	 * @returns {Array<string>} Array of href attributes from thumbnails
+	 */
 	list: function(){
 		var images = [];
 		this.$t.children('.thumb:not(.clone,.drag)').each(function(){
@@ -737,7 +812,10 @@ Carousel.prototype = {
 		return images;
 	},
 
-	// return an array of identificators about each unique item
+	/**
+	 * Get array of item IDs from all thumbnails in carousel
+	 * @returns {Array<number>} Array of item IDs
+	 */
 	getIds: function(){
 		var ids = [];
 		this.$t.children('.thumb:not(.clone,.drag)').each(function(){
@@ -753,12 +831,20 @@ Carousel.prototype = {
 	},
 
 
-	// each carousel object can have a path which helps to identify where each item belongs to
+	/**
+	 * Get page title
+	 * @returns {string} Document title
+	 */
 	getTitle: function(path){
 		return $('title').text();
 	},
 
-	// each carousel object can have a path which helps to identify where each item belongs to
+	/**
+	 * Get carousel path - extracts meaningful path from URL or tag input
+	 * Handles special domains (pix8.co, th.ai, wiki, etc.) to extract topic/identifier
+	 * @param {string} path - Path to process (optional, uses tag or location.href)
+	 * @returns {string} Normalized path identifier
+	 */
 	getPath: function(path){
 		path = (
 			path ||
@@ -797,7 +883,10 @@ Carousel.prototype = {
 		return path;
 	},
 
-	// what goes after @ in tag
+	/**
+	 * Get owner from tag (part after @ symbol)
+	 * @returns {string} Owner username or User.name
+	 */
 	getOwner: function(){
 		if(this.owner) return this.owner;
 
@@ -817,7 +906,11 @@ Carousel.prototype = {
 		return owner;
 	},
 
-	// save list of id;s into database
+	/**
+	 * Save view (collection of item IDs) to database
+	 * @param {Object} view - View object (optional, creates new if omitted)
+	 * @returns {Object} Saved view object
+	 */
 	saveView: function(view){
 		var carousel = this;
 		if(!view) view = {
@@ -851,7 +944,10 @@ Carousel.prototype = {
 		return view;
 	},
 
-	// update the sequence of id's into DB
+	/**
+	 * Update existing view with current item sequence
+	 * Saves if no view exists yet
+	 */
 	updateView: function(){
 		var carousel = this;
 
@@ -893,7 +989,10 @@ Carousel.prototype = {
 		});
 	},
 
-	//load sequence of private items and put them into carousel
+	/**
+	 * Load multiple views matching filter (legacy/unused)
+	 * @param {Object} filter - Query filter
+	 */
 	loadViews: function(filter){
 		filter = {
 			path: this.getPath(),
@@ -920,7 +1019,12 @@ Carousel.prototype = {
 		});
 	},
 
-	//load sequence of private items and put them into carousel
+	/**
+	 * Load user's private view for current path
+	 * Falls back to public view if no private view exists
+	 * @param {Object} filter - Query filter (auto-generated if omitted)
+	 * @param {Function} cb - Callback with loaded view
+	 */
 	loadView: function(filter, cb){
 		filter = {
 			path: this.getPath(),
@@ -947,7 +1051,11 @@ Carousel.prototype = {
 		});
 	},
 
-	//load sequence of public items and put them into carousel
+	/**
+	 * Load public/community view for current path
+	 * Falls back to fill() if no public view exists
+	 * @param {string} tag - Tag/path to load (optional)
+	 */
 	loadPublic: function(tag){
 		var filter = {
 			type: 'public',
@@ -975,7 +1083,11 @@ Carousel.prototype = {
 		});
 	},
 
-	// load another view and add images to the beggining
+	/**
+	 * Fetch view by path (tries private first, then public)
+	 * @param {string} path - Path to fetch
+	 * @returns {Promise<Object>} Promise resolving to view object
+	 */
 	fetchView: function(path){
 		var filter = {
 			path: path,
@@ -1014,7 +1126,10 @@ Carousel.prototype = {
 		});
 	},
 
-	// add elements to the beggining from another view
+	/**
+	 * Prepend items from another view to beginning of carousel
+	 * @param {string} path - Path of view to prepend
+	 */
 	prependView: function(path){
 		var carousel = this;
 		this.fetchView(path).then(view => {
@@ -1035,7 +1150,11 @@ Carousel.prototype = {
 		})
 	},
 
-	// give view object with ids and load from DB info about each new items
+	/**
+	 * Set view and load associated items from database
+	 * Fetches any items not already in cache
+	 * @param {Object} view - View object with items array
+	 */
 	setView: function(view){
 		//this.viewId = view.id;
 		this.view = view;
@@ -1110,8 +1229,16 @@ Carousel.prototype = {
 		})
 	},
 
-	// if not enogh items inside carousel then load some more from google images.
+	/**
+	 * Loading state counter for fill operation
+	 */
 	loading: 0,
+
+	/**
+	 * Fill empty carousel with images from page or Google Images
+	 * Validates image dimensions and saves to database
+	 * @param {string} path - Path/search term to fill with
+	 */
 	fill: function(path){
 		var carousel = this;
 
@@ -1179,7 +1306,12 @@ Carousel.prototype = {
 		});
 	},
 
-	//get exact path of real image.
+	/**
+	 * Convert thumbnail/page URLs to full-resolution image URLs
+	 * Supports imgur and wikimedia
+	 * @param {string} url - URL to convert
+	 * @returns {string} Full resolution image URL
+	 */
 	getImgUrl: function(url){
 		if(url.indexOf('imgur.com')+1){
 			var parts = url.replace(/^(https?|ftp):\/\//, '').split('/'),
@@ -1201,7 +1333,11 @@ Carousel.prototype = {
 		return url;
 	},
 
-	// get images of that url.
+	/**
+	 * Get images from page or Google Images search
+	 * @param {string} path - URL or search term
+	 * @param {Function} cb - Callback receiving array of image URLs
+	 */
 	getImages: function(path, cb){
 		var carousel = this;
 		if(this.cfg.preloadLocal && (path.indexOf('http://')+1 || path.indexOf('https://')+1)){
@@ -1230,7 +1366,11 @@ Carousel.prototype = {
 			});
 	},
 
-	// put all the stuff into carousel
+	/**
+	 * Spread items across carousel (add all items)
+	 * @param {Array<number>} srcs - Array of item IDs to add
+	 * @param {*} cf - Unused parameter
+	 */
 	spread: function(srcs, cf){
 		var carousel = this;
 		srcs.forEach(function(id, i){
@@ -1240,7 +1380,11 @@ Carousel.prototype = {
 		//pix.cleanTargets();
 	},
 
-	// inset alreadey loaded image
+	/**
+	 * Push item to carousel (build and append thumbnail)
+	 * @param {number} id - Item ID from pix.items cache
+	 * @returns {jQuery} Created thumbnail element
+	 */
 	push: function(id){
 		var $item;
 
@@ -1309,7 +1453,10 @@ Carousel.prototype = {
 		$thumb = carousel.createThumb(data._id,  'http://img.youtube.com/vi/'+video.id+'/default.jpg').appendTo(cont).data('url', url);
 	},
 
-	// make it possible to drag&drop local files
+	/**
+	 * Enable drag-drop file upload and URL dropping
+	 * Handles both local files and text/URL drops
+	 */
 	allowUpload: function(){
 		var t = this;
 		function cancel(e){
@@ -1364,8 +1511,15 @@ Carousel.prototype = {
 		}, false);
 	},
 
-	// will put uploaded file into IPFS
-	upload: function(ev){
+	/**
+	 * Upload dropped/pasted files to server
+	 * Supports both drag-drop and paste events
+	 * Reads file, uploads via WebSocket, saves to database
+	 * @param {Event} ev - Drop or paste event
+	 * @param {jQuery} $before - Element to insert before (optional)
+	 * @returns {boolean} False to prevent default
+	 */
+	upload: function(ev, $before){
 		var carousel = this;
 
 		var files = ev.dataTransfer.files; // FileList object
@@ -1408,9 +1562,17 @@ Carousel.prototype = {
   }
 	*/
 
+	/**
+	 * Upload files from drop or paste event (second implementation)
+	 * Handles both event types and creates upload preview
+	 * @param {Event} ev - Drop or paste event
+	 * @param {jQuery} $before - Element to insert before
+	 * @returns {boolean} False to prevent default
+	 */
 	upload: function(ev, $before){
 		console.log(ev);
 
+		// Extract files from drop or paste event
 		var files;
 		if(ev.type == 'drop')
 			files = ev.dataTransfer.files; // FileList object
@@ -1561,7 +1723,11 @@ Carousel.prototype = {
 		}
 	},
 
-	// when slide its should have some momentum
+	/**
+	 * Apply momentum scrolling animation after drag release
+	 * Uses exponential decay for natural feel
+	 * @param {number} amplitude - Initial velocity
+	 */
 	motion: function(amplitude){
 		var carousel = this;
 
@@ -1599,9 +1765,17 @@ Carousel.prototype = {
 	},
 
 
-	// scroll all the stuff by some pixels.
+	/**
+	 * Scroll position tracking
+	 */
 	x: 0,
 	left: 0,
+
+	/**
+	 * Scroll carousel by delta pixels
+	 * Handles infinite scrolling if enabled
+	 * @param {number} delta - Pixels to scroll (positive = right)
+	 */
 	scroll: function(delta){
 		if(!delta) return;
 		delta = Math.round(delta);
@@ -1629,6 +1803,11 @@ Carousel.prototype = {
 		}
 	},
 
+	/**
+	 * Export carousel items as JSON array
+	 * Removes internal properties (dragdata, dropdata, _id)
+	 * @returns {string} JSON string of items array
+	 */
 	exportJSON: function(){
 		var out = '[';
 		var $items = this.$t.children('span:not(.clone)');
